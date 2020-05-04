@@ -114,11 +114,17 @@ static struct cpu_pwr_stats cpu_stats[NR_CPUS];
 ALLOCATE_2D_ARRAY(uint32_t);
 
 static int poll_ms;
-module_param_named(polling_interval, poll_ms, int,
+module_param_named(polling_interval_real, poll_ms, int,
+		S_IRUGO | S_IWUSR | S_IWGRP);
+static int poll_ms_dummy;
+module_param_named(polling_interval, poll_ms_dummy, int,
 		S_IRUGO | S_IWUSR | S_IWGRP);
 
 static int disabled;
-module_param_named(disabled, disabled, int,
+module_param_named(disabled_real, disabled, int,
+		S_IRUGO | S_IWUSR | S_IWGRP);
+static int disabled_dummy;
+module_param_named(disabled, disabled_dummy, int,
 		S_IRUGO | S_IWUSR | S_IWGRP);
 #ifdef ENABLE_TSENS_SAMPLING
 static bool in_suspend;
@@ -182,17 +188,17 @@ static void set_threshold(struct cpu_activity_info *cpu_node)
 		&cpu_node->low_threshold);
 }
 
-static inline bool should_run_resampling(void)
+static inline bool should_run_resampling(bool ignore_mutex)
 {
-	if (!mutex_is_locked(&suspend_update_mutex) && !in_suspend)
+	if ((!mutex_is_locked(&suspend_update_mutex) || ignore_mutex) && likely(!in_suspend))
 		return true;
 	else
 		return false;
 }
 
-static inline void schedule_sampling(void)
+static inline void schedule_sampling(bool ignore_mutex)
 {
-	if (should_run_resampling()) {
+	if (should_run_resampling(ignore_mutex)) {
 		forced_timeout = jiffies + msecs_to_jiffies(SAMPLE_MAX_TIMEOUT_MS);
 		if (delayed_work_pending(&sampling_work))
 			cancel_delayed_work(&sampling_work);
@@ -217,7 +223,7 @@ static void core_temp_notify(enum thermal_trip_type type,
 
 	/* Schedule resampling if the forced timeout is over */
 	if (time_after(jiffies, forced_timeout)) {
-		schedule_sampling();
+		schedule_sampling(false);
 	}
 }
 #endif
@@ -338,12 +344,12 @@ static inline void do_sampling(void)
 	struct cpu_activity_info *cpu_node;
 	static int prev_temp[NR_CPUS];
 
-	if (!should_run_resampling())
+	if (!should_run_resampling(false))
 		return;
 
+	mutex_lock(&suspend_update_mutex);
 	trigger_cpu_pwr_stats_calc();
 
-	mutex_lock(&suspend_update_mutex);
 	for_each_online_cpu(cpu) {
 		cpu_node = &activity[cpu];
 		if (prev_temp[cpu] != cpu_node->temp) {
@@ -365,8 +371,10 @@ static void samplequeue_handle(struct work_struct *work)
 	forced_timeout = jiffies + msecs_to_jiffies(SAMPLE_MAX_TIMEOUT_MS);
 	do_sampling();
 	forced_timeout = jiffies + msecs_to_jiffies(poll_ms / 2);
-	queue_delayed_work(msm_core_wq, &sampling_work,
-				msecs_to_jiffies(poll_ms));
+	if (likely(!in_suspend)) {
+		queue_delayed_work(msm_core_wq, &sampling_work,
+					msecs_to_jiffies(poll_ms));
+	}
 }
 #endif
 
@@ -629,7 +637,8 @@ static int msm_core_stats_init(struct device *dev, int cpu)
 #ifdef ENABLE_TSENS_SAMPLING
 static int msm_core_task_init(struct device *dev)
 {
-	msm_core_wq = alloc_workqueue("msm-core_wq", WQ_HIGHPRI, 0);
+	msm_core_wq = alloc_workqueue("msm-core_wq", WQ_HIGHPRI |
+						WQ_UNBOUND | WQ_SYSFS, 1);
 	if (!msm_core_wq)
 		return -EFAULT;
 
@@ -869,7 +878,7 @@ static int system_suspend_handler(struct notifier_block *nb,
 		 * stats
 		 */
 		in_suspend = 0;
-		schedule_sampling();
+		schedule_sampling(true);
 		break;
 	case PM_HIBERNATION_PREPARE:
 	case PM_SUSPEND_PREPARE:
@@ -1096,6 +1105,7 @@ static int msm_core_dev_probe(struct platform_device *pdev)
 	ret = of_property_read_u32(node, key, &poll_ms);
 	if (ret)
 		pr_info("msm-core initialized without polling period\n");
+	poll_ms_dummy = poll_ms;
 
 	key = "qcom,throttling-temp";
 	ret = of_property_read_u32(node, key, &max_throttling_temp);
@@ -1128,7 +1138,7 @@ static int msm_core_dev_probe(struct platform_device *pdev)
 	for_each_possible_cpu(cpu)
 		set_threshold(&activity[cpu]);
 
-	schedule_sampling();
+	schedule_sampling(false);
 
 	pm_notifier(system_suspend_handler, 0);
 #endif
