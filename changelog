@@ -1,21 +1,19 @@
-<b><#selectbg_g>Feb 02,2025</#></b>
+<b><#selectbg_g>Feb 07,2025</#></b>
 
   <*> Based from LA.UM.9.2.r1-03700-SDMxx0.0</*>
   <*> KernelSU-Next support</*>
   <*> APatch support</*>
+  <*> wireguard: bump to v1.0.20220627</*>
+  <*> kallsyms: Fixed printf format mismatch</*>
+  <*> drm: msm: Mark IRQ and important kthreads as performance critical</*>
+  <*> treewide: Use interruptible wait to reduce loadavg</*>
   <*> Add Some Tweak Changes, and Improvements</*>
 
 
 
-<b><#selectbg_g>NOTES eng:</#></b>
+<b><#selectbg_g>NOTES:</#></b>
 
-  <*> I think the 1TB storage problem no longer exists:)</*>
   <*> Kernel need sometimes to settle.</*>
-
-
-
-<b><#selectbg_g>NOTES id:</#></b>
-  <*> Saya rasa masalah penyimpanan 1TB pada KernelSU sudah tidak ada lagi:)</*>
   <*> Kernel perlu beberapa waktu untuk beradaptasi.</*>
 
 
